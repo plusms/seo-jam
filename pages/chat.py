@@ -3,13 +3,6 @@ import anthropic
 import os
 from pathlib import Path
 
-st.set_page_config(page_title="SEO JAM - Chat", page_icon="🎸", layout="wide")
-
-# 未認証チェック
-if not st.session_state.get("authenticated", False):
-    st.warning("トップページからログインしてください。")
-    st.stop()
-
 # ── ナレッジ読み込み ────────────────────────────────────────────────────────────
 KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
 
@@ -63,7 +56,7 @@ BASE_SYSTEM = """あなたはSEOコンテンツのエキスパートです。
 """
 
 # ── UI ────────────────────────────────────────────────────────────────────────
-st.title("🎸 SEO JAM")
+st.title("💭 SEO壁打ち部屋")
 
 # サイドバー：カテゴリ選択
 st.sidebar.header("カテゴリ")
