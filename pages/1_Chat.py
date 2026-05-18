@@ -1,0 +1,153 @@
+import streamlit as st
+import anthropic
+import os
+from pathlib import Path
+
+st.set_page_config(page_title="SEO JAM - Chat", page_icon="🎸", layout="wide")
+
+# 未認証チェック
+if not st.session_state.get("authenticated", False):
+    st.warning("トップページからログインしてください。")
+    st.stop()
+
+# ── ナレッジ読み込み ────────────────────────────────────────────────────────────
+KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
+
+def load_knowledge(files: list[str]) -> str:
+    texts = []
+    for fname in files:
+        path = KNOWLEDGE_DIR / fname
+        if path.exists():
+            texts.append(f"## {fname}\n\n{path.read_text(encoding='utf-8')}")
+    return "\n\n---\n\n".join(texts)
+
+# カテゴリ定義
+CATEGORIES = {
+    "📝 記事作成・構成": {
+        "desc": "骨子の作り方、H2/H3設計、見出しの整合性",
+        "files": ["article-process.md", "content-guidelines.md", "logic-structure.md"],
+        "system_extra": "記事の構成・骨子・見出し設計に関する質問に答えます。具体的な見出し案や骨子のフィードバックも行えます。",
+    },
+    "✍️ 本文の書き方": {
+        "desc": "PREP構造、NGワード、文体、医療広告ルール",
+        "files": ["writing-rules.md", "content-guidelines.md"],
+        "system_extra": "本文の執筆ルール・NGワード・PREP構造・医療広告ガイドラインに関する質問に答えます。文章を貼り付けてもらえれば具体的なフィードバックもできます。",
+    },
+    "🔍 KW・マーケ戦略": {
+        "desc": "KWの種類、検索意図の読み方、CV距離の考え方",
+        "files": ["kw-strategy.md", "search-intent.md"],
+        "system_extra": "キーワード戦略・検索意図・サイト設計に関する質問に答えます。KWを提示してもらえれば意図の分析や記事の方向性もアドバイスできます。",
+    },
+    "💬 なんでも壁打ち": {
+        "desc": "「この記事どう思う？」「どこから手をつける？」",
+        "files": ["kw-strategy.md", "search-intent.md", "article-process.md", "content-guidelines.md", "writing-rules.md", "logic-structure.md"],
+        "system_extra": "SEOコンテンツ全般について、どんな質問・相談でも受け付けます。記事URL・見出し・本文を貼り付けてもらえれば具体的なフィードバックができます。",
+    },
+}
+
+BASE_SYSTEM = """あなたはSEOコンテンツのエキスパートです。
+医療・美容・ダイエット系のSEOメディアで豊富な実績があります。
+以下の社内ナレッジに基づいて、具体的・実践的に回答してください。
+
+【回答の原則】
+- 結論から先に答える
+- 「なぜそうするのか」の理由まで説明する
+- 抽象論で終わらず、具体例・サンプルを出す
+- 初心者（新卒・インターン・外部パートナー）でも理解できる言葉で説明する
+- 医療系のNG表現・法規制に関する質問は特に丁寧に答える
+
+【社内ナレッジ】
+{knowledge}
+
+{category_extra}
+"""
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+st.title("🎸 SEO JAM")
+
+# サイドバー：カテゴリ選択
+st.sidebar.header("カテゴリ")
+selected_cat = st.sidebar.radio(
+    "何について聞きますか？",
+    list(CATEGORIES.keys()),
+    label_visibility="collapsed",
+)
+st.sidebar.markdown(f"*{CATEGORIES[selected_cat]['desc']}*")
+st.sidebar.markdown("---")
+
+# カテゴリが変わったらセッションをリセット
+if st.session_state.get("current_category") != selected_cat:
+    st.session_state.current_category = selected_cat
+    st.session_state.messages = []
+
+# Claude APIキー
+api_key = ""
+try:
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+except Exception:
+    pass
+if not api_key:
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+if not api_key:
+    st.sidebar.warning("ANTHROPIC_API_KEY が設定されていません")
+
+# ログアウト
+st.sidebar.markdown("---")
+if st.sidebar.button("退室", type="secondary"):
+    st.session_state.authenticated = False
+    st.rerun()
+
+# ── チャット画面 ───────────────────────────────────────────────────────────────
+st.markdown(f"**{selected_cat}**　— {CATEGORIES[selected_cat]['desc']}")
+st.markdown("---")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# 履歴表示
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# 入力
+if prompt := st.chat_input("質問を入力してください..."):
+    if not api_key:
+        st.error("ANTHROPIC_API_KEY が設定されていません。")
+        st.stop()
+
+    # ユーザーメッセージ追加
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # システムプロンプト構築
+    cat_info = CATEGORIES[selected_cat]
+    knowledge = load_knowledge(cat_info["files"])
+    system_prompt = BASE_SYSTEM.format(
+        knowledge=knowledge,
+        category_extra=cat_info["system_extra"],
+    )
+
+    # Claude API呼び出し（ストリーミング）
+    client = anthropic.Anthropic(api_key=api_key)
+
+    with st.chat_message("assistant"):
+        response_text = ""
+        placeholder = st.empty()
+
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.messages
+            ],
+        ) as stream:
+            for text in stream.text_stream:
+                response_text += text
+                placeholder.markdown(response_text + "▌")
+            placeholder.markdown(response_text)
+
+    st.session_state.messages.append({"role": "assistant", "content": response_text})
