@@ -92,6 +92,42 @@ if not api_key:
 if not api_key:
     st.sidebar.warning("ANTHROPIC_API_KEY が設定されていません")
 
+# まとめを出す
+st.sidebar.markdown("---")
+if st.sidebar.button("📋 このセッションをまとめる", type="primary", disabled=not st.session_state.get("messages")):
+    if not api_key:
+        st.sidebar.error("APIキーが設定されていません")
+    else:
+        msgs = st.session_state.get("messages", [])
+        if msgs:
+            client_sum = anthropic.Anthropic(api_key=api_key)
+            conv_text = "\n\n".join(
+                f"{'Q' if m['role'] == 'user' else 'A'}：{m['content']}" for m in msgs
+            )
+            summary_prompt = f"""以下の会話を、コピペして使えるメモ形式でまとめてください。
+
+【まとめの形式】
+## 今日学んだこと / 確認したこと
+- （箇条書きで要点を3〜7つ）
+
+## 次にやること
+- （会話から読み取れるアクションがあれば）
+
+## メモ
+（その他、残しておきたい補足）
+
+【会話履歴】
+{conv_text}"""
+            with st.sidebar:
+                with st.spinner("まとめ生成中..."):
+                    res = client_sum.messages.create(
+                        model="claude-sonnet-4-6",
+                        max_tokens=1024,
+                        messages=[{"role": "user", "content": summary_prompt}],
+                    )
+                    summary = res.content[0].text
+            st.session_state["session_summary"] = summary
+
 # ログアウト
 st.sidebar.markdown("---")
 if st.sidebar.button("退室", type="secondary"):
@@ -151,3 +187,17 @@ if prompt := st.chat_input("質問を入力してください..."):
             placeholder.markdown(response_text)
 
     st.session_state.messages.append({"role": "assistant", "content": response_text})
+
+# ── セッションまとめ表示 ────────────────────────────────────────────────────────
+if st.session_state.get("session_summary"):
+    st.markdown("---")
+    st.markdown("### 📋 セッションまとめ")
+    st.text_area(
+        label="コピーして使ってください",
+        value=st.session_state["session_summary"],
+        height=300,
+        key="summary_output",
+    )
+    if st.button("まとめをクリア"):
+        del st.session_state["session_summary"]
+        st.rerun()
