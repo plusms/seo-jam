@@ -142,9 +142,11 @@ if not api_key:
 
 # まとめを出す
 st.sidebar.markdown("---")
-if st.sidebar.button("📋 このセッションをまとめる", type="primary", disabled=not st.session_state.get("messages")):
+if st.sidebar.button("📋 このセッションをまとめる", type="primary"):
     if not api_key:
         st.sidebar.error("APIキーが設定されていません")
+    elif not st.session_state.get("messages"):
+        st.sidebar.warning("まだ会話がありません")
     else:
         msgs = st.session_state.get("messages", [])
         if msgs:
