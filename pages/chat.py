@@ -37,7 +37,7 @@ CATEGORIES = {
         "system_extra": "SEOコンテンツ全般について、どんな質問・相談でも受け付けます。記事URL・見出し・本文を貼り付けてもらえれば具体的なフィードバックができます。",
     },
     "✍️ 執筆チャット": {
-        "desc": "文章を貼ると添削・修正。「AIっぽい」も直します",
+        "desc": "直したい意図＋文章を一緒に投げる。壁打ち形式で添削・修正します",
         "files": ["writing-rules.md", "content-guidelines.md", "logic-structure.md"],
         "system_extra": """執筆チャットモードです。文章の添削・修正・書き直しに特化します。
 以下のルールを**常に守って**回答・添削・文章生成を行ってください。自分の出力にも同じルールを適用してください。
@@ -181,6 +181,14 @@ if st.sidebar.button("退室", type="secondary"):
 st.markdown(f"**{selected_cat}**　— {CATEGORIES[selected_cat]['desc']}")
 st.markdown("---")
 
+if selected_cat == "✍️ 執筆チャット" and not st.session_state.get("messages"):
+    st.info(
+        "**使い方**　直したい意図と文章をセットで投げてください。\n\n"
+        "例）「AIっぽい表現を直してほしい ＋ 〔文章〕」\n"
+        "例）「PREP構造になってるか確認して ＋ 〔文章〕」\n"
+        "例）「この見出し、もっと具体的にしたい ＋ 〔見出し案〕」"
+    )
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -190,7 +198,12 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # 入力
-if prompt := st.chat_input("質問を入力してください..."):
+_placeholder = (
+    "直したい意図＋文章を一緒に書いてください。例）「AIっぽいので自然にして」＋文章"
+    if selected_cat == "✍️ 執筆チャット"
+    else "質問を入力してください..."
+)
+if prompt := st.chat_input(_placeholder):
     if not api_key:
         st.error("ANTHROPIC_API_KEY が設定されていません。")
         st.stop()
