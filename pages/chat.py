@@ -1,7 +1,17 @@
+import sys
+import re
+import datetime
 import streamlit as st
 import anthropic
 import os
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import drive_uploader
+
+if not st.session_state.get("authenticated"):
+    st.warning("ログインが必要です。トップページからパスワードを入力してください。")
+    st.stop()
 
 # ── ナレッジ読み込み ────────────────────────────────────────────────────────────
 KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
@@ -130,6 +140,67 @@ BASE_SYSTEM = """あなたはSEOコンテンツのエキスパートです。
 {category_extra}
 """
 
+
+# ── ヘルパー関数 ───────────────────────────────────────────────────────────────
+
+def _sanitize_folder_name(name: str) -> str:
+    """カテゴリ名から先頭の絵文字・記号を除去してフォルダ名に使える形にする。"""
+    cleaned = re.sub(r'^[^\w　-鿿゠-ヿ぀-ゟ]+', '', name)
+    return cleaned.strip()
+
+
+def _generate_summary(msgs: list, api_key: str) -> str:
+    """会話履歴からセッションまとめを生成する。"""
+    client_sum = anthropic.Anthropic(api_key=api_key)
+    conv_text = "\n\n".join(
+        f"{'Q' if m['role'] == 'user' else 'A'}：{m['content']}" for m in msgs
+    )
+    summary_prompt = f"""以下の会話を、コピペして使えるメモ形式でまとめてください。
+
+【まとめの形式】
+## 今日学んだこと / 確認したこと
+- （箇条書きで要点を3〜7つ）
+
+## 次にやること
+- （会話から読み取れるアクションがあれば）
+
+## メモ
+（その他、残しておきたい補足）
+
+【会話履歴】
+{conv_text}"""
+    res = client_sum.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": summary_prompt}],
+    )
+    return res.content[0].text
+
+
+def _save_to_drive(summary: str, category: str) -> bool:
+    """セッションまとめをGoogle Driveに保存する。失敗時はFalseを返す。"""
+    try:
+        creds = dict(st.secrets["gcp_service_account"])
+        root_id = st.secrets.get("DRIVE_LOG_FOLDER_ID", "")
+        if not root_id:
+            return False
+        now = datetime.datetime.now()
+        folder_name = _sanitize_folder_name(category)
+        month_str = now.strftime("%Y-%m")
+        filename = f"{now.strftime('%Y-%m-%d_%H-%M')}_{folder_name}.md"
+        drive_uploader.upload_log(
+            text=summary,
+            filename=filename,
+            folder_path=[folder_name, month_str],
+            credentials_dict=creds,
+            root_folder_id=root_id,
+        )
+        return True
+    except Exception as e:
+        print(f"[Drive保存エラー] {e}")
+        return False
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 st.title("💭 SEO壁打ち部屋")
 
@@ -160,7 +231,7 @@ if not api_key:
 if not api_key:
     st.sidebar.warning("ANTHROPIC_API_KEY が設定されていません")
 
-# まとめを出す
+# まとめを出す（Drive保存も同時に実行）
 st.sidebar.markdown("---")
 if st.sidebar.button("📋 このセッションをまとめる", type="primary"):
     if not api_key:
@@ -169,38 +240,23 @@ if st.sidebar.button("📋 このセッションをまとめる", type="primary"
         st.sidebar.warning("まだ会話がありません")
     else:
         msgs = st.session_state.get("messages", [])
-        if msgs:
-            client_sum = anthropic.Anthropic(api_key=api_key)
-            conv_text = "\n\n".join(
-                f"{'Q' if m['role'] == 'user' else 'A'}：{m['content']}" for m in msgs
-            )
-            summary_prompt = f"""以下の会話を、コピペして使えるメモ形式でまとめてください。
+        with st.sidebar:
+            with st.spinner("まとめ生成中..."):
+                summary = _generate_summary(msgs, api_key)
+                st.session_state["session_summary"] = summary
+                saved = _save_to_drive(summary, selected_cat)
+            if saved:
+                st.sidebar.success("まとめをDriveに保存しました")
 
-【まとめの形式】
-## 今日学んだこと / 確認したこと
-- （箇条書きで要点を3〜7つ）
-
-## 次にやること
-- （会話から読み取れるアクションがあれば）
-
-## メモ
-（その他、残しておきたい補足）
-
-【会話履歴】
-{conv_text}"""
-            with st.sidebar:
-                with st.spinner("まとめ生成中..."):
-                    res = client_sum.messages.create(
-                        model="claude-sonnet-4-6",
-                        max_tokens=1024,
-                        messages=[{"role": "user", "content": summary_prompt}],
-                    )
-                    summary = res.content[0].text
-            st.session_state["session_summary"] = summary
-
-# ログアウト
+# ログアウト（会話があれば自動でまとめ→Drive保存してから退室）
 st.sidebar.markdown("---")
 if st.sidebar.button("退室", type="secondary"):
+    msgs = st.session_state.get("messages", [])
+    if msgs and api_key:
+        with st.sidebar:
+            with st.spinner("ログを保存して退室します..."):
+                summary = st.session_state.get("session_summary") or _generate_summary(msgs, api_key)
+                _save_to_drive(summary, selected_cat)
     st.session_state.authenticated = False
     st.rerun()
 

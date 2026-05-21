@@ -1,5 +1,9 @@
 import streamlit as st
 
+if not st.session_state.get("authenticated"):
+    st.warning("ログインが必要です。トップページからパスワードを入力してください。")
+    st.stop()
+
 st.title("💭 SEO壁打ち部屋")
 st.markdown("SEOコンテンツの疑問を、壁打ちしながら解決する部屋。")
 st.markdown("---")
