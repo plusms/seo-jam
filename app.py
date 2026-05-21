@@ -5,11 +5,8 @@ from dotenv import load_dotenv
 st.set_page_config(page_title="SEO壁打ち部屋", page_icon="💭", layout="wide")
 load_dotenv()
 
-# ── Password Gate ──────────────────────────────────────────────────────────────
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
 
-if not st.session_state.authenticated:
+def login_page():
     st.title("💭 SEO壁打ち部屋")
     st.markdown("---")
     col_c, col_r = st.columns([1, 2])
@@ -28,11 +25,14 @@ if not st.session_state.authenticated:
                 st.rerun()
             else:
                 st.error("パスワードが違います")
-    st.stop()
 
-# ── Navigation ─────────────────────────────────────────────────────────────────
-pg = st.navigation([
-    st.Page("pages/home.py",  title="部屋の説明", icon="📋"),
-    st.Page("pages/chat.py",  title="チャット",   icon="💬"),
-])
+
+if not st.session_state.get("authenticated"):
+    pg = st.navigation([st.Page(login_page, title="ログイン", url_path="/")])
+else:
+    pg = st.navigation([
+        st.Page("pages/home.py", title="部屋の説明", icon="📋"),
+        st.Page("pages/chat.py", title="チャット",   icon="💬"),
+    ])
+
 pg.run()
