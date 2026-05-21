@@ -28,7 +28,7 @@ def login_page():
 
 
 if not st.session_state.get("authenticated"):
-    pg = st.navigation([st.Page(login_page, title="ログイン", url_path="/")])
+    pg = st.navigation([st.Page(login_page, title="ログイン")])
 else:
     pg = st.navigation([
         st.Page("pages/home.py", title="部屋の説明", icon="📋"),
